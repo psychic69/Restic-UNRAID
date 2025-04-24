@@ -1,0 +1,122 @@
+#!/bin/bash
+
+# Restic Repository
+RESTIC_REPO="/auto/restic_tank/restic-files"
+
+# Mount Check File
+MOUNT_CHECK="/auto/restic_tank/MOUNTED"
+
+# Log Directory
+LOG_DIR="/auto/restic_tank/restic-logs"
+
+# Backup Source List File
+SOURCE_LIST="$1"
+
+# Retention Policy
+RETENTION_DAYS=60
+RETENTION_VERSIONS=25
+
+# Restic Password
+RESTIC_PASSWORD=""
+
+# Timestamped Log File
+LOG_FILE="$LOG_DIR/backup_$(date +'%Y-%m-%d_%H-%M-%S').log"
+
+# Function to log messages with timestamps
+log_message() {
+  echo "$(date +'%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
+}
+
+# Function to check for mount and wait.  Main should check but this is just in case!
+check_mount() {
+  if [ ! -f "$MOUNT_CHECK" ]; then
+    log_message "Mount not detected. Waiting 60 seconds..."
+    sleep 60
+    if [ ! -f "$MOUNT_CHECK" ]; then
+      log_message "Mount failed after waiting. Exiting."
+      exit 1
+    fi
+  fi
+  log_message "Mount detected. Continuing."
+}
+
+#Function to see if a directory exists
+check_dir() {
+
+    if [ ! -d "$1" ]; then
+      log_message " Error: Directory does not exist: $1" 
+      echo " Error: Directory does not exist: $1" >&2
+      exit 1 # Exit if directory is invalid.
+    fi
+}
+# Function to perform the backup
+perform_backup() {
+  local dir_to_add
+  local source
+
+  # Check if source list file exists
+  if [ ! -f "$SOURCE_LIST" ]; then
+    log_message "Source list file not found: $SOURCE_LIST"
+    exit 1
+  fi
+
+# Read the file line by line  : Updating this to a more extensible case version to test for multiple examples
+#
+  while IFS= read -r line; do
+
+
+    # Skip empty lines
+    if [[ -z "$line" ]]; then
+     continue 
+    fi
+
+    #Directory has a space in it
+
+    if [[ $line =~ [[:space:]] ]]; then
+        check_dir "$line"
+	dir_to_add="\"$line\""
+       else
+    # Regular directory, no spaces
+    #
+        check_dir "$line"
+        dir_to_add="$line"
+    fi
+
+     echo " The directory to test is : |$dir_to_add|"
+    # First time through source is the first dir
+    if [ -z "$source" ]; then
+      source="$dir_to_add"
+     else
+       source="$source $dir_to_add"  
+    fi
+  done < "$SOURCE_LIST"
+
+  # Print the final result (optional - can be removed if only the return value is needed)
+  log_message "SOURCE DIRECTORY LIST is :$source"
+
+
+  # Perform the backup
+  log_message "Starting restic backup..."
+  RESTIC_PASSWORD="$RESTIC_PASSWORD" restic backup --verbose --ignore-inode --repo "$RESTIC_REPO" $source  2>&1 | tee -a "$LOG_FILE" || { log_message "restic backup failed."; exit 1; } && log_message "Backup completed successfully."
+
+}
+
+# Function to perform retention
+perform_retention() {
+  log_message "Starting restic forget..."
+  RESTIC_PASSWORD="$RESTIC_PASSWORD" restic forget --keep-within "$RETENTION_DAYS"d --keep-last "$RETENTION_VERSIONS" --repo "$RESTIC_REPO" --prune 2>&1 | tee -a "$LOG_FILE" || { log_message "restic backup failed."; exit 1; } && log_message "Backup completed successfully."
+
+}
+
+# Main script execution
+# Create log directory if it does not exist.
+check_mount
+
+if [ ! -d "$LOG_DIR" ]; then
+    mkdir -p "$LOG_DIR"
+fi
+
+perform_backup
+perform_retention
+
+log_message "Daily restic backup finished."

@@ -1,0 +1,106 @@
+#!/bin/bash
+
+# Ensure the logs directory exists
+LOG_DIR="/home/restic/logs"
+
+# Mount Check File
+MOUNT_CHECK="/auto/restic_tank/MOUNTED"
+AUTOMOUNT_DIR="/auto/restic_tank"
+
+if [ ! -d "$LOG_DIR" ]; then
+    mkdir -p "$LOG_DIR"
+fi
+
+
+# Generate log filename with date and time (e.g., command-file-20250329-153045.log)
+LOG_FILE="$LOG_DIR/command-file-$(date +'%Y%m%d-%H%M%S').log"
+
+# Function to log messages with timestamp
+log_message() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+}
+
+# Function to check for the automount and wait. This is the first check, will check agin prior to backup. 
+check_mount() {
+
+log_message "Attempting to trigger automount via stat for: $AUTOMOUNT_DIR"
+
+if ls "$AUTOMOUNT_DIR" > /dev/null 2>&1; then
+  log_message "List of automount dir, successful: $AUTOMOUNT_DIR"
+
+ else
+  log_message "Error: Failed to list $AUTOMOUNT_DIR. Mount trigger failed?"
+  exit 1
+fi
+
+log_message "Automount likely triggered."
+sleep 5 # Optional delay
+
+
+  if [ ! -f "$MOUNT_CHECK" ]; then
+    log_message "Mount file: $MOUNT_CHECK not detected. Waiting 60 seconds..."
+    sleep 60
+    if [ ! -f "$MOUNT_CHECK" ]; then
+      log_message "Mount check of file: $MOUNT_CHECK failed after waiting. Exiting."
+      exit 1
+    fi
+  fi
+  log_message "Mount file: $MOUNT_CHECK detected. Continuing."
+}
+
+# Function to check and run a command with its arguments
+run_command() {
+    local script="$1"          # The script to execute
+    shift                      # Remove the script from the argument list
+    local args=("$@")          # Remaining arguments to pass to the script
+
+    # Check if the script file exists
+    if [ ! -f "$script" ]; then
+        log_message "Error: Script file '$script' does not exist"
+        echo "Error: Script file '$script' does not exist"
+        exit 1
+    fi
+
+    # Check if the script is executable
+    if [ ! -x "$script" ]; then
+        log_message "Error: Script file '$script' is not executable"
+        echo "Error: Script file '$script' is not executable"
+        exit 1
+    fi
+
+    # Run the script with its arguments and capture output
+    log_message "Running: $script ${args[*]}"
+    "$script" "${args[@]}" >> "$LOG_FILE" 2>&1
+    local exit_code=$?
+
+    # Check the exit code
+    if [ $exit_code -ne 0 ]; then
+        log_message "Error: Script '$script ${args[*]}' failed with exit code $exit_code"
+        echo "Error: Script '$script ${args[*]}' failed with exit code $exit_code"
+        exit 1
+    else
+        log_message "Script '$script ${args[*]}' completed successfully"
+    fi
+}
+
+# Log script start
+log_message "Script started"
+
+#Check to see if the input file exists, if it doesn't exit out
+#
+  if [ ! -f "$1" ]; then
+	log_message "Input file for restic does not exist: $1"
+	exit 1
+  fi
+
+# Run each script with its arguments
+run_command "/home/restic/wake-remote" "**MAC ADDRESS**" "**BACKUP SERVER**"
+check_mount   #Check to see if NFS automount is there.  If not no reason to continue :(
+run_command "/home/restic/backup-master" "$1"
+run_command "/home/restic/remote-command" "/usr/local/sbin/powerdown"
+
+# Log script completion
+log_message "Command Script completed successfully"
+echo "Script completed successfully"
+
+

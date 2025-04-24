@@ -1,0 +1,70 @@
+#!/bin/bash
+
+# Check if wakeonlan is installed in /usr/bin
+if [ ! -x "/usr/bin/wakeonlan" ]; then
+    echo "Error: 'wakeonlan' is not installed or not found in /usr/bin."
+    echo "Please install it (e.g., 'sudo apt install wakeonlan' on Debian/Ubuntu)."
+    exit 1
+fi
+
+# Check if the correct number of arguments is provided
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <MAC_ADDRESS> <SERVER_NAME>"
+    echo "Example: $0 00:11:22:33:44:55 server.example.com"
+    exit 1
+fi
+
+# Assign parameters to variables
+MAC_ADDRESS="$1"
+SERVER_NAME="$2"
+
+# Number of retries and wait time (in seconds)
+MAX_RETRIES=2
+WAIT_TIME=300  # 5 minutes, This machine takes forever to come up
+
+# Function to send Wake-on-LAN packet
+send_wol() {
+    echo "Sending Wake-on-LAN packet to $MAC_ADDRESS..."
+    /usr/bin/wakeonlan "$MAC_ADDRESS"
+}
+
+# Function to check if server is up
+check_server() {
+    echo "Checking if $SERVER_NAME is up..."
+
+    if ping -c 5 "$SERVER_NAME" > /dev/null 2>&1; then
+     echo "Server $SERVER_NAME is up!"
+     return 0
+
+      else
+       echo "Server $SERVER_NAME is not responding yet."
+       return 1
+    fi
+}
+
+# Main logic
+attempt=0
+
+while [ $attempt -le $MAX_RETRIES ]; do
+    # Send WOL packet on the first attempt only
+    if [ $attempt -eq 0 ]; then
+        send_wol
+    else
+        echo "Retry $attempt of $MAX_RETRIES..."
+    fi
+
+    # Wait for the server to come up
+    sleep $WAIT_TIME
+
+    # Check if the server is up
+    if check_server; then
+        exit 0  # Success, exit with code 0
+    fi
+
+    # Increment attempt counter
+    ((attempt++))
+done
+
+# If we reach here, all retries failed
+echo "Error: Server $SERVER_NAME failed to wake up after $MAX_RETRIES retries."
+exit 1  # Failure, exit with code 1

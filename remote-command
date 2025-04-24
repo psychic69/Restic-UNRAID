@@ -1,0 +1,34 @@
+#!/bin/bash
+
+REMOTE_USER="root"
+REMOTE_IP="**REMOTE SERVER**"
+SSH_KEY=""  # You need to add the keyfile
+COMMAND="$1"  # Set COMMAND to the first script parameter
+
+# Check if a command was provided
+if [ -z "$COMMAND" ]; then
+    echo "Error: No command provided. Usage: $0 <command>"
+    exit 1
+fi
+
+# Check if SSH_KEY file exists
+if [ ! -f "$SSH_KEY" ]; then
+    echo "Error: SSH key file '$SSH_KEY' does not exist"
+    exit 1
+fi
+
+# Check if REMOTE_IP is reachable with ping (try 4 pings, timeout after 1 second each)
+if ping -c 4 -W 1 "$REMOTE_IP" > /dev/null 2>&1; then
+    echo "Ping check for $REMOTE_IP Command executed successfully"
+ else
+    echo "Error: Remote server '$REMOTE_IP' is not reachable"
+    exit 1
+fi
+
+# Execute the SSH command
+if ssh -i "$SSH_KEY" "$REMOTE_USER@$REMOTE_IP" "$COMMAND"; then
+    echo "SSH Command executed successfully"
+else
+    echo "Error: SSH command failed"
+    exit 1
+fi
